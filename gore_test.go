@@ -206,3 +206,143 @@ func TestSubexpNames(t *testing.T) {
 		}
 	}
 }
+
+// TestBoundedQuantifiers tests {n}, {n,m}, and {n,} syntax
+func TestBoundedQuantifiers(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		// {n} - exactly n times
+		{"a{3}", "aaa", true},
+		{"a{3}", "aa", false},
+		{"a{3}", "aaaa", true}, // matches first 3
+		{"^a{3}$", "aaaa", false},
+		{"^a{3}$", "aaa", true},
+
+		// {n,m} - between n and m times
+		{"a{2,4}", "a", false},
+		{"a{2,4}", "aa", true},
+		{"a{2,4}", "aaa", true},
+		{"a{2,4}", "aaaa", true},
+		{"a{2,4}", "aaaaa", true}, // matches first 4
+		{"^a{2,4}$", "aaaaa", false},
+
+		// {n,} - n or more times
+		{"a{3,}", "aa", false},
+		{"a{3,}", "aaa", true},
+		{"a{3,}", "aaaa", true},
+		{"a{3,}", "aaaaaaaa", true},
+
+		// Non-greedy variants
+		{"a{2,4}?", "aaaa", true}, // should match, still
+
+		// Complex patterns
+		{"[0-9]{3}-[0-9]{4}", "123-4567", true},
+		{"[0-9]{3}-[0-9]{4}", "12-4567", false},
+		{"\\d{2,3}", "12", true},
+		{"\\d{2,3}", "123", true},
+	}
+
+	for _, tt := range tests {
+		re := MustCompile(tt.pattern)
+		got := re.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("MatchString(%q, %q) = %v; want %v", tt.pattern, tt.input, got, tt.want)
+		}
+	}
+}
+
+// TestExtendedEscapes tests \D, \W, \S and literal escapes
+func TestExtendedEscapes(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		// Negated character classes
+		{"\\D", "a", true},   // non-digit
+		{"\\D", "5", false},  // digit
+		{"\\W", "!", true},   // non-word
+		{"\\W", "a", false},  // word char
+		{"\\S", "a", true},   // non-space
+		{"\\S", " ", false},  // space
+		{"\\S", "\t", false}, // tab (whitespace)
+
+		// Literal escapes
+		{"\\n", "\n", true},
+		{"\\t", "\t", true},
+		{"\\r", "\r", true},
+		{"hello\\nworld", "hello\nworld", true},
+		{"tab\\there", "tab\there", true},
+
+		// Escaped metacharacters
+		{"\\.", ".", true},
+		{"\\.", "a", false},
+		{"\\*", "*", true},
+		{"\\+", "+", true},
+		{"\\?", "?", true},
+		{"\\[", "[", true},
+		{"\\\\", "\\", true},
+
+		// Combined patterns
+		{"\\d+\\s+\\w+", "123 hello", true},
+		{"\\D+", "hello", true},
+		{"\\W+", "!!!", true},
+	}
+
+	for _, tt := range tests {
+		re := MustCompile(tt.pattern)
+		got := re.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("MatchString(%q, %q) = %v; want %v", tt.pattern, tt.input, got, tt.want)
+		}
+	}
+}
+
+// TestWordBoundaries tests \b and \B
+func TestWordBoundaries(t *testing.T) {
+	tests := []struct {
+		pattern string
+		input   string
+		want    bool
+	}{
+		// \b - word boundary
+		{"\\bword\\b", "word", true},
+		{"\\bword\\b", "word.", true},
+		{"\\bword\\b", " word ", true},
+		{"\\bword\\b", "sword", false},
+		{"\\bword\\b", "words", false},
+		{"\\bword\\b", "wording", false},
+
+		// Start boundary
+		{"\\bcat", "cat", true},
+		{"\\bcat", "category", true},
+		{"\\bcat", "scat", false},
+
+		// End boundary
+		{"cat\\b", "cat", true},
+		{"cat\\b", "scat", true},
+		{"cat\\b", "cats", false},
+
+		// \B - NOT a word boundary
+		{"\\Bcat", "cat", false},
+		{"\\Bcat", "scat", true},
+		{"cat\\B", "cats", true},
+		{"cat\\B", "cat", false},
+
+		// Complex patterns
+		{"\\b\\d+\\b", "123", true},
+		{"\\b\\d+\\b", "abc123def", false},
+		{"\\b\\w+\\b", "hello world", true},
+	}
+
+	for _, tt := range tests {
+		re := MustCompile(tt.pattern)
+		got := re.MatchString(tt.input)
+		if got != tt.want {
+			t.Errorf("MatchString(%q, %q) = %v; want %v", tt.pattern, tt.input, got, tt.want)
+		}
+	}
+}

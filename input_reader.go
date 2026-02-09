@@ -1,6 +1,7 @@
 package gore
 
 import (
+	"bytes"
 	"io"
 	"io/ioutil"
 	"unicode/utf8"
@@ -39,6 +40,18 @@ func (s *ReaderInput) Context(pos int) (rune, int) {
 	return r, w
 }
 
+func (s *ReaderInput) Len() int {
+	return len(s.data)
+}
+
 func (s *ReaderInput) Index(re *Regexp, pos int) int {
-	return -1
+	if re.prog.Prefix == "" || pos >= len(s.data) {
+		return -1
+	}
+	// Use fast byte search for literal prefix
+	idx := bytes.Index(s.data[pos:], []byte(re.prog.Prefix))
+	if idx == -1 {
+		return -1
+	}
+	return pos + idx
 }

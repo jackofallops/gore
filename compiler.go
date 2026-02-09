@@ -9,7 +9,7 @@ func NewCompiler() *Compiler {
 	return &Compiler{}
 }
 
-func (c *Compiler) Compile(node Node) (*Prog, error) {
+func (c *Compiler) Compile(node Node, numCaptures int) (*Prog, error) {
 	c.insts = nil // reset
 
 	// Implicit Capture Group 0 (Whole Match)
@@ -22,11 +22,96 @@ func (c *Compiler) Compile(node Node) (*Prog, error) {
 
 	c.emit(Inst{Op: OpMatch})
 
-	return &Prog{
-		Insts:  c.insts,
-		Start:  start,
-		NumCap: 10, // TODO: Count captures dynamically or pass from parser
-	}, nil
+	prog := &Prog{
+		Insts:             c.insts,
+		Start:             start,
+		NumCap:            numCaptures + 1, // +1 for implicit group 0
+		LookbehindLengths: make(map[int]int),
+	}
+
+	// Analyze pattern for optimizations
+	prog.Prefix = c.analyzePrefix(node)
+	c.analyzeLookbehinds(prog)
+
+	return prog, nil
+}
+
+// analyzePrefix extracts a literal prefix from the pattern for fast searching
+func (c *Compiler) analyzePrefix(node Node) string {
+	switch n := node.(type) {
+	case *Literal:
+		// Return literal as prefix
+		return string(n.Runes)
+	case *Concat:
+		// First node of concat could be prefix
+		if len(n.Nodes) > 0 {
+			return c.analyzePrefix(n.Nodes[0])
+		}
+	case *Capture:
+		// Look inside capture
+		return c.analyzePrefix(n.Body)
+	}
+	return ""
+}
+
+// analyzeLookbehinds finds fixed-length lookbehind patterns
+func (c *Compiler) analyzeLookbehinds(prog *Prog) {
+	for pc, inst := range prog.Insts {
+		if inst.Op == OpLookaround && inst.LookBehind {
+			// Analyze the lookbehind subprogram
+			length := c.analyzeFixedLength(inst.Prog, inst.Prog.Start, 0)
+			prog.LookbehindLengths[pc] = length
+		}
+	}
+}
+
+// analyzeFixedLength determines if a pattern has fixed length
+// Returns length if fixed, 0 if variable
+func (c *Compiler) analyzeFixedLength(prog *Prog, pc int, currentLen int) int {
+	visited := make(map[int]bool)
+	return c.analyzeFixedLengthRec(prog, pc, currentLen, visited)
+}
+
+func (c *Compiler) analyzeFixedLengthRec(prog *Prog, pc int, currentLen int, visited map[int]bool) int {
+	if visited[pc] || pc >= len(prog.Insts) {
+		return 0 // Cycle or invalid = variable length
+	}
+	visited[pc] = true
+
+	inst := prog.Insts[pc]
+	switch inst.Op {
+	case OpMatch:
+		return currentLen
+
+	case OpChar:
+		// Single rune = 1 byte typically, but could be multi-byte
+		// For simplicity, count as 1 rune
+		return c.analyzeFixedLengthRec(prog, pc+1, currentLen+1, visited)
+
+	case OpCharClass, OpAny:
+		return c.analyzeFixedLengthRec(prog, pc+1, currentLen+1, visited)
+
+	case OpJmp:
+		return c.analyzeFixedLengthRec(prog, inst.Out, currentLen, visited)
+
+	case OpSplit:
+		// Both branches must have same length
+		len1 := c.analyzeFixedLengthRec(prog, inst.Out, currentLen, visited)
+		len2 := c.analyzeFixedLengthRec(prog, inst.Out1, currentLen, visited)
+		if len1 == len2 && len1 > 0 {
+			return len1
+		}
+		return 0 // Variable length
+
+	case OpSave:
+		return c.analyzeFixedLengthRec(prog, pc+1, currentLen, visited)
+
+	case OpAssert:
+		return c.analyzeFixedLengthRec(prog, pc+1, currentLen, visited)
+
+	default:
+		return 0 // Unknown = variable
+	}
 }
 
 func (c *Compiler) emit(i Inst) int {
@@ -105,8 +190,7 @@ func (c *Compiler) compileNode(node Node) int {
 
 	case *Lookaround:
 		subC := NewCompiler()
-		subProg, _ := subC.Compile(n.Body)
-		// Note: subProg currently has implicit Capture 0 too.
+		subProg, _ := subC.Compile(n.Body, 0) // Lookaround captures are independent
 
 		return c.emit(Inst{
 			Op:         OpLookaround,
@@ -165,6 +249,63 @@ func (c *Compiler) compileQuantifier(q *Quantifier) int {
 			c.insts[split].Out1 = start + 1
 		}
 		return split
+	}
+
+	// {n} - exactly n times
+	if q.Min == q.Max && q.Max > 0 {
+		for i := 0; i < q.Min; i++ {
+			c.compileNode(q.Body)
+		}
+		return start
+	}
+
+	// {n,m} - between n and m times (inclusive)
+	if q.Min >= 0 && q.Max > q.Min {
+		// Required repetitions
+		for i := 0; i < q.Min; i++ {
+			c.compileNode(q.Body)
+		}
+
+		// Optional repetitions (max - min)
+		for i := 0; i < q.Max-q.Min; i++ {
+			split := c.emit(Inst{Op: OpSplit})
+			bodyStart := len(c.insts)
+			c.compileNode(q.Body)
+			end := len(c.insts)
+
+			if q.Greedy {
+				c.insts[split].Out = bodyStart
+				c.insts[split].Out1 = end
+			} else {
+				c.insts[split].Out = end
+				c.insts[split].Out1 = bodyStart
+			}
+		}
+		return start
+	}
+
+	// {n,} - n or more times
+	if q.Min > 0 && q.Max == -1 {
+		// Required repetitions
+		for i := 0; i < q.Min; i++ {
+			c.compileNode(q.Body)
+		}
+
+		// Then * (zero or more)
+		split := c.emit(Inst{Op: OpSplit})
+		bodyStart := len(c.insts)
+		c.compileNode(q.Body)
+		c.emit(Inst{Op: OpJmp, Out: split})
+		end := len(c.insts)
+
+		if q.Greedy {
+			c.insts[split].Out = bodyStart
+			c.insts[split].Out1 = end
+		} else {
+			c.insts[split].Out = end
+			c.insts[split].Out1 = bodyStart
+		}
+		return start
 	}
 
 	return -1

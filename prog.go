@@ -35,6 +35,10 @@ type Prog struct {
 	Insts  []Inst
 	Start  int // Entry point
 	NumCap int // Number of capture registers needed
+
+	// Optimizations
+	Prefix            string      // Literal prefix for fast searching
+	LookbehindLengths map[int]int // PC -> fixed length (0 = variable length)
 }
 
 func (i Inst) String() string {

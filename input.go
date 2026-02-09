@@ -1,6 +1,7 @@
 package gore
 
 import (
+	"strings"
 	"unicode/utf8"
 )
 
@@ -9,12 +10,14 @@ import (
 type Input interface {
 	// Step returns the rune at the given position and its width in bytes.
 	// If the position is at or beyond the end of the input, it returns (0, 0).
-	// It basically acts like utf8.DecodeRune.
 	Step(pos int) (rune, int)
 
 	// Context returns the rune before the given position, to support boundary checks like \b and ^.
 	// If pos is 0, it should return (-1, 0) or handling for start-of-text.
 	Context(pos int) (rune, int)
+
+	// Len returns the byte length of the input.
+	Len() int
 
 	// Index returns the byte index of the given string/pattern in the input starting at pos.
 	// Used for optimizations (prefix search). Returns -1 if not found.
@@ -49,6 +52,18 @@ func (s *StringInput) Context(pos int) (rune, int) {
 	return r, w
 }
 
+func (s *StringInput) Len() int {
+	return len(s.str)
+}
+
 func (s *StringInput) Index(re *Regexp, pos int) int {
-	return -1
+	if re.prog.Prefix == "" || pos >= len(s.str) {
+		return -1
+	}
+	// Use fast string search for literal prefix
+	idx := strings.Index(s.str[pos:], re.prog.Prefix)
+	if idx == -1 {
+		return -1
+	}
+	return pos + idx
 }

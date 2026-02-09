@@ -2,6 +2,7 @@ package gore
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -102,8 +103,58 @@ func (p *Parser) parseFactor() (Node, error) {
 		}
 		return q, nil
 	case '{':
-		// TODO: Implement {n,m} parsing
-		return atom, nil
+		p.consume() // eat {
+
+		// Parse minimum
+		minStr := ""
+		for p.pos < len(p.input) && p.peek() >= '0' && p.peek() <= '9' {
+			minStr += string(p.consume())
+		}
+		if minStr == "" {
+			return nil, fmt.Errorf("invalid quantifier: missing number")
+		}
+		min, err := strconv.Atoi(minStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid quantifier: %v", err)
+		}
+
+		max := min // Default: exactly n
+
+		if p.pos < len(p.input) && p.peek() == ',' {
+			p.consume() // eat ,
+
+			if p.pos < len(p.input) && p.peek() == '}' {
+				// {n,} means n or more
+				max = -1
+			} else {
+				// {n,m} means n to m
+				maxStr := ""
+				for p.pos < len(p.input) && p.peek() >= '0' && p.peek() <= '9' {
+					maxStr += string(p.consume())
+				}
+				if maxStr == "" {
+					return nil, fmt.Errorf("invalid quantifier: missing max")
+				}
+				max, err = strconv.Atoi(maxStr)
+				if err != nil {
+					return nil, fmt.Errorf("invalid quantifier: %v", err)
+				}
+			}
+		}
+
+		if p.pos >= len(p.input) || p.consume() != '}' {
+			return nil, fmt.Errorf("unclosed quantifier")
+		}
+
+		q := &Quantifier{Body: atom, Min: min, Max: max, Greedy: true}
+
+		// Check for non-greedy modifier
+		if p.pos < len(p.input) && p.peek() == '?' {
+			p.consume()
+			q.Greedy = false
+		}
+
+		return q, nil
 	}
 	return atom, nil
 }
@@ -132,13 +183,44 @@ func (p *Parser) parseAtom() (Node, error) {
 		}
 		esc := p.consume()
 		switch esc {
+		// Character classes
 		case 'd':
 			return &CharClass{Ranges: []RuneRange{{'0', '9'}}}, nil
+		case 'D':
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}}, Negated: true}, nil
 		case 'w':
 			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}}, nil
+		case 'W':
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}, Negated: true}, nil
 		case 's':
 			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}}, nil
+		case 'S':
+			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}, Negated: true}, nil
+
+		// Assertions
+		case 'b':
+			return &Assertion{Kind: AssertWordBoundary}, nil
+		case 'B':
+			return &Assertion{Kind: AssertNotWordBoundary}, nil
+
+		// Literal escapes
+		case 'n':
+			return &Literal{Runes: []rune{'\n'}}, nil
+		case 't':
+			return &Literal{Runes: []rune{'\t'}}, nil
+		case 'r':
+			return &Literal{Runes: []rune{'\r'}}, nil
+		case 'f':
+			return &Literal{Runes: []rune{'\f'}}, nil
+		case 'v':
+			return &Literal{Runes: []rune{'\v'}}, nil
+
+		// Escaped metacharacters
+		case '.', '*', '+', '?', '|', '(', ')', '[', ']', '{', '}', '^', '$', '\\':
+			return &Literal{Runes: []rune{esc}}, nil
+
 		default:
+			// Treat as literal
 			return &Literal{Runes: []rune{esc}}, nil
 		}
 	case '^':

@@ -1,5 +1,17 @@
 package gore
 
+import (
+	"sync"
+)
+
+// Pool for capture slice allocations to reduce GC pressure
+var capsPool = sync.Pool{
+	New: func() interface{} {
+		// Pre-allocate reasonable size
+		return make([]int, 0, 20)
+	},
+}
+
 // VM executes the regex program.
 type VM struct {
 	prog  *Prog
@@ -13,61 +25,81 @@ func NewVM(prog *Prog, input Input) *VM {
 // Run executes the VM starting at the given position.
 // Returns true if match found, and the capture positions.
 func (vm *VM) Run(pos int) (bool, []int) {
-	// Cap slice size: 2 * numCap
-	caps := make([]int, vm.prog.NumCap*2)
+	// Get caps from pool and ensure proper size
+	poolCaps := capsPool.Get().([]int)
+	caps := poolCaps[:0] // Reset length
+
+	// Ensure capacity
+	needed := vm.prog.NumCap * 2
+	if cap(caps) < needed {
+		caps = make([]int, needed)
+	} else {
+		caps = caps[:needed]
+	}
+
+	// Initialize to -1
 	for i := range caps {
 		caps[i] = -1
 	}
 
-	if vm.match(vm.prog.Start, pos, caps) {
+	endPos, matched := vm.match(vm.prog.Start, pos, caps)
+	if matched {
+		// Return actual caps, don't put back in pool since caller uses them
+		// endPos not used here but needed for match signature consistency
+		_ = endPos
 		return true, caps
 	}
+
+	// Return caps to pool
+	capsPool.Put(caps)
 	return false, nil
 }
 
-// match is the core backtracking function.
-func (vm *VM) match(pc int, pos int, caps []int) bool {
-	// Infinite loop protection could be added here (step limit)
+// match is the unified backtracking function.
+// Returns (endPos, matched) where endPos is the position after match.
+func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
+	// Iteration limit to prevent infinite loops
+	const maxSteps = 1000000
+	steps := 0
 
 	for {
-		if pc >= len(vm.prog.Insts) {
-			return false
+		steps++
+		if steps > maxSteps || pc >= len(vm.prog.Insts) {
+			return -1, false
 		}
+
 		inst := vm.prog.Insts[pc]
 
 		switch inst.Op {
 		case OpMatch:
-			return true
+			return pos, true
 
 		case OpChar:
 			r, w := vm.input.Step(pos)
 			if r != inst.Val {
-				return false
+				return -1, false
 			}
 			pos += w
 			pc++
 
 		case OpCharClass:
 			r, w := vm.input.Step(pos)
-			// CharClass must consume a character.
 			if w == 0 { // EOF
-				return false
+				return -1, false
 			}
 			if !matchClass(r, inst.Ranges, inst.Negated) {
-				return false
+				return -1, false
 			}
 			pos += w
 			pc++
 
 		case OpAny:
 			r, w := vm.input.Step(pos)
-			if r == 0 && w == 0 { // EOF
-				return false
+			if w == 0 { // EOF
+				return -1, false
 			}
-			// Dot usually doesn't match newline.
-			// If we want DotAll, we need a flag. Assuming not for now.
-			if r == '\n' {
-				return false
+			if r == '\n' { // Dot doesn't match newline
+				return -1, false
 			}
 			pos += w
 			pc++
@@ -76,20 +108,28 @@ func (vm *VM) match(pc int, pos int, caps []int) bool {
 			pc = inst.Out
 
 		case OpSplit:
-			// Backtracking split
-			// Try Out first (greedy default ordering in compiler determines this)
-			// Copy matches (captures)
-			// Efficient capture copy? For now full slice copy.
-
-			// Branch 1
-			capsCopy := make([]int, len(caps))
+			// Backtracking split: try both branches
+			// Get caps copy from pool
+			poolCaps := capsPool.Get().([]int)
+			capsCopy := poolCaps[:0]
+			if cap(capsCopy) < len(caps) {
+				capsCopy = make([]int, len(caps))
+			} else {
+				capsCopy = capsCopy[:len(caps)]
+			}
 			copy(capsCopy, caps)
-			if vm.match(inst.Out, pos, capsCopy) {
+
+			// Try first branch
+			if endPos, ok := vm.match(inst.Out, pos, capsCopy); ok {
 				copy(caps, capsCopy)
-				return true
+				capsPool.Put(capsCopy)
+				return endPos, true
 			}
 
-			// Branch 2
+			// Return copy to pool
+			capsPool.Put(capsCopy)
+
+			// Try second branch (tail call optimization possible)
 			return vm.match(inst.Out1, pos, caps)
 
 		case OpSave:
@@ -98,150 +138,48 @@ func (vm *VM) match(pc int, pos int, caps []int) bool {
 
 		case OpAssert:
 			if !vm.checkAssertion(inst.Assert, pos) {
-				return false
+				return -1, false
 			}
 			pc++
 
 		case OpLookaround:
 			subVM := NewVM(inst.Prog, vm.input)
-
 			matched := false
 
 			if inst.LookBehind {
-				// Naive Lookbehind:
-				// Search for a match ENDING at current `pos`.
-				// Try matching from i = 0 to pos.
-				// This is O(pos) scans. Very slow but correct for variable length.
-				// TODO: Optimize with reverse matching or length constraints.
+				// Check if this is a fixed-length lookbehind
+				fixedLen, exists := vm.prog.LookbehindLengths[pc]
 
-				for i := 0; i <= pos; i++ {
-					// Hack: Use RunWithEnd
-					end, ok := subVM.runWithEnd(i)
-					if ok && end == pos {
-						matched = true
-						break
+				if exists && fixedLen > 0 {
+					// Optimized: fixed-length lookbehind O(1)
+					// Only try matching from the exact position
+					startPos := pos - fixedLen
+					if startPos >= 0 {
+						if endPos, ok := subVM.match(subVM.prog.Start, startPos, make([]int, subVM.prog.NumCap*2)); ok && endPos == pos {
+							matched = true
+						}
+					}
+				} else {
+					// Fallback: O(pos) scan for variable-length lookbehind
+					for i := 0; i <= pos; i++ {
+						if endPos, ok := subVM.match(subVM.prog.Start, i, make([]int, subVM.prog.NumCap*2)); ok && endPos == pos {
+							matched = true
+							break
+						}
 					}
 				}
-
 			} else {
 				// Lookahead
-				matched, _ = subVM.Run(pos) // Run sub-program at current pos
+				_, matched = subVM.match(subVM.prog.Start, pos, make([]int, subVM.prog.NumCap*2))
 			}
 
 			if inst.LookNeg {
 				if matched {
-					return false
+					return -1, false
 				}
 			} else {
 				if !matched {
-					return false
-				}
-			}
-			pc++ // Success, continue without consuming input
-		}
-	}
-}
-
-// runWithEnd is a helper to get end position of match
-// This duplicates logic of Run/match but returns end pos.
-// Ideally refactor Run/match to return int (end pos or -1)
-func (vm *VM) runWithEnd(pos int) (int, bool) {
-	return vm.recMatch(vm.prog.Start, pos, make([]int, vm.prog.NumCap*2))
-}
-
-func (vm *VM) recMatch(pc int, pos int, caps []int) (int, bool) {
-	for {
-		if pc >= len(vm.prog.Insts) {
-			return -1, false
-		}
-		inst := vm.prog.Insts[pc]
-
-		switch inst.Op {
-		case OpMatch:
-			return pos, true // Return current pos
-
-		case OpChar:
-			r, w := vm.input.Step(pos)
-			if r != inst.Val {
-				return -1, false
-			}
-			pos += w
-			pc++
-
-		case OpCharClass:
-			r, w := vm.input.Step(pos)
-			if w == 0 {
-				return -1, false
-			} // EOF check
-			if !matchClass(r, inst.Ranges, inst.Negated) {
-				return -1, false
-			}
-			pos += w
-			pc++
-
-		case OpAny:
-			r, w := vm.input.Step(pos)
-			if r == 0 && w == 0 {
-				return -1, false
-			}
-			if r == '\n' {
-				return -1, false
-			}
-			pos += w
-			pc++
-
-		case OpJmp:
-			pc = inst.Out
-
-		case OpSplit:
-			caps1 := make([]int, len(caps))
-			copy(caps1, caps)
-			if end, ok := vm.recMatch(inst.Out, pos, caps1); ok {
-				return end, true
-			}
-			return vm.recMatch(inst.Out1, pos, caps) // Tail call
-
-		case OpSave:
-			caps[inst.Idx] = pos
-			pc++
-
-		case OpAssert:
-			if !vm.checkAssertion(inst.Assert, pos) {
-				return -1, false
-			}
-			pc++
-
-		case OpLookaround:
-			// Recursive check
-			subVM := NewVM(inst.Prog, vm.input)
-			if inst.LookBehind {
-				matched := false
-				for i := 0; i <= pos; i++ {
-					if end, ok := subVM.runWithEnd(i); ok && end == pos {
-						matched = true
-						break
-					}
-				}
-				if inst.LookNeg {
-					if matched {
-						return -1, false
-					}
-				} else {
-					if !matched {
-						return -1, false
-					}
-				}
-			} else {
-				// Lookahead
-				_, ok := subVM.runWithEnd(pos)
-				if inst.LookNeg {
-					if ok {
-						return -1, false
-					}
-				} else {
-					if !ok {
-						return -1, false
-					}
+					return -1, false
 				}
 			}
 			pc++
@@ -249,7 +187,19 @@ func (vm *VM) recMatch(pc int, pos int, caps []int) (int, bool) {
 	}
 }
 
+// matchClass checks if rune r matches the character class.
+// Optimized with fast-path for common single-range classes.
 func matchClass(r rune, ranges []RuneRange, negated bool) bool {
+	// Fast path for single range (common with \d, \w components)
+	if len(ranges) == 1 {
+		matched := r >= ranges[0].Lo && r <= ranges[0].Hi
+		if negated {
+			return !matched
+		}
+		return matched
+	}
+
+	// General case: check all ranges
 	matched := false
 	for _, rng := range ranges {
 		if r >= rng.Lo && r <= rng.Hi {
@@ -257,6 +207,7 @@ func matchClass(r rune, ranges []RuneRange, negated bool) bool {
 			break
 		}
 	}
+
 	if negated {
 		return !matched
 	}
@@ -270,6 +221,29 @@ func (vm *VM) checkAssertion(kind AssertionType, pos int) bool {
 	case AssertEndText:
 		r, _ := vm.input.Step(pos)
 		return r == 0 // EOF
+	case AssertWordBoundary:
+		return vm.isWordBoundary(pos)
+	case AssertNotWordBoundary:
+		return !vm.isWordBoundary(pos)
 	}
 	return true
+}
+
+func (vm *VM) isWordBoundary(pos int) bool {
+	// Check if we're at a transition between word and non-word characters
+	prevChar, _ := vm.input.Context(pos)
+	currChar, _ := vm.input.Step(pos)
+
+	prevIsWord := isWordChar(prevChar)
+	currIsWord := isWordChar(currChar)
+
+	// Boundary exists when exactly one is a word char
+	return prevIsWord != currIsWord
+}
+
+func isWordChar(r rune) bool {
+	return (r >= 'A' && r <= 'Z') ||
+		(r >= 'a' && r <= 'z') ||
+		(r >= '0' && r <= '9') ||
+		r == '_'
 }
