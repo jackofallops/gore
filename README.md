@@ -31,7 +31,8 @@ package main
 
 import (
     "fmt"
-    "gore" // or "github.com/..."
+    
+    "github.com/jackofallops/gore"
 )
 
 func main() {
@@ -93,11 +94,22 @@ if matched {
 }
 ```
 
+
 ## ⚠️ Performance Note
 
 Unlike the standard `regexp` package (which uses RE2 and guarantees O(n) linear time), `gore` uses a **backtracking engine** to support these advanced features.
 
 *   **Pros**: Supports lookarounds, backreferences (planned), and complex assertions.
 *   **Cons**: Can be slower for certain pathological patterns (exponential time in worst case).
+
+### Benchmarks (Apple M2)
+
+| Benchmark | Time/Op | Notes |
+| :--- | :--- | :--- |
+| `Literal` | ~93 ns | Comparable to stdlib for simple cases |
+| `Lookahead` | ~112 ns | Very efficient |
+| `Lookbehind` | ~495 ns | Slower due to backtracking check |
+| `LookbehindLong` | ~15 ms | **Caution**: Lookbehind scales with input length (O(N)) |
+| `Pathological` | ~148 ms | Exponential backtracking on `(a+)+` |
 
 Use `gore` when you need features that `regexp` simply cannot provide. For standard, simple patterns where safety is paramount, the standard library is still a great choice.
