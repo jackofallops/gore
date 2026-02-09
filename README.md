@@ -1,6 +1,8 @@
 # gore - Native Go Regular Expressions (PCRE-style)
 
-`gore` is a powerful, pure Go regular expression library that provides features missing from the standard `regexp` package, such as lookarounds and named capture groups.
+DISCLOSURE: This lib was developed as an experiment for PCRE style regexp processing in Go, it was created using Antigravity as a side-project to helpe me skill up in a few areas, and something potentially useful always works best for that. It's provided "as-is" and I make no gaurantees that I'll update or support it in future. That said, I'd love to hear feedback if folks find it useful, or if something definitely doesn't work as expected (I'm no regex expert, and my Perl days are long behind me, thankfully!) 
+
+`gore` is a (hopefully) powerful, pure Go regular expression library that provides features missing from the standard `regexp` package, such as lookarounds and named capture groups.
 
 It is designed to be a familiar, drop-in replacement for standard regex in many cases, while offering the advanced capabilities of PCRE engines when you need them.
 
