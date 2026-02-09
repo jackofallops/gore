@@ -11,13 +11,21 @@ func NewCompiler() *Compiler {
 
 func (c *Compiler) Compile(node Node) (*Prog, error) {
 	c.insts = nil // reset
-	start := c.compileNode(node)
+
+	// Implicit Capture Group 0 (Whole Match)
+	// Save(0) -> Body -> Save(1) -> Match
+
+	c.emit(Inst{Op: OpSave, Idx: 0})
+	c.compileNode(node)
+	c.emit(Inst{Op: OpSave, Idx: 1})
+	start := 0 // Start is always 0 now
+
 	c.emit(Inst{Op: OpMatch})
 
 	return &Prog{
 		Insts:  c.insts,
 		Start:  start,
-		NumCap: 10,
+		NumCap: 10, // TODO: Count captures dynamically or pass from parser
 	}, nil
 }
 
@@ -59,17 +67,12 @@ func (c *Compiler) compileNode(node Node) int {
 			return c.compileNode(n.Nodes[0])
 		}
 
-		// Fix: compileAlternate signature
-		// Logic was messy in previous step.
-
 		left := n.Nodes[0]
 
-		// Right is everything else treated as an alternate or single node.
 		var right Node
 		if len(n.Nodes) == 2 {
 			right = n.Nodes[1]
 		} else {
-			// Wrap remaining in Alternate
 			right = &Alternate{Nodes: n.Nodes[1:]}
 		}
 
@@ -103,6 +106,8 @@ func (c *Compiler) compileNode(node Node) int {
 	case *Lookaround:
 		subC := NewCompiler()
 		subProg, _ := subC.Compile(n.Body)
+		// Note: subProg currently has implicit Capture 0 too.
+
 		return c.emit(Inst{
 			Op:         OpLookaround,
 			Prog:       subProg,

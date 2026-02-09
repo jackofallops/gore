@@ -142,3 +142,67 @@ func TestMatchReader(t *testing.T) {
 		t.Error("MatchReader failed to match")
 	}
 }
+
+func TestFindStringSubmatch(t *testing.T) {
+	tests := []struct {
+		pattern  string
+		input    string
+		expected []string
+	}{
+		{
+			`(\w+)\s+(\w+)`,
+			"John Doe",
+			[]string{"John Doe", "John", "Doe"},
+		},
+		{
+			`(?P<first>\w+)\s+(?P<last>\w+)`,
+			"Jane Smith",
+			[]string{"Jane Smith", "Jane", "Smith"},
+		},
+		{
+			`a(b*)c`,
+			"abbbc",
+			[]string{"abbbc", "bbb"},
+		},
+		{
+			`a(b*)c`,
+			"ac",
+			[]string{"ac", ""},
+		},
+	}
+	for _, tc := range tests {
+		re := MustCompile(tc.pattern)
+		got := re.FindStringSubmatch(tc.input)
+		// Check lengths
+		if len(got) != len(tc.expected) {
+			t.Errorf("FindStringSubmatch(%q, %q) length = %d; want %d. Got: %v", tc.pattern, tc.input, len(got), len(tc.expected), got)
+			continue
+		}
+		// Check content
+		for i, s := range got {
+			if s != tc.expected[i] {
+				t.Errorf("FindStringSubmatch(%q, %q)[%d] = %q; want %q", tc.pattern, tc.input, i, s, tc.expected[i])
+			}
+		}
+	}
+}
+
+func TestSubexpNames(t *testing.T) {
+	pattern := `(?P<first>\w+)\s+(\w+)\s+(?P<last>\w+)`
+	re := MustCompile(pattern)
+	names := re.SubexpNames()
+	// capturing groups are:
+	// 1: first (\w+)
+	// 2: (\w+) (unnamed)
+	// 3: last (\w+)
+	// Index 0 is implicit whole match (empty name usually in Go stdlib).
+	expected := []string{"", "first", "", "last"}
+	if len(names) != len(expected) {
+		t.Fatalf("SubexpNames length = %d; want %d", len(names), len(expected))
+	}
+	for i, name := range names {
+		if name != expected[i] {
+			t.Errorf("SubexpNames[%d] = %q; want %q", i, name, expected[i])
+		}
+	}
+}

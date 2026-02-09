@@ -31,7 +31,7 @@ package main
 
 import (
     "fmt"
-    
+
     "github.com/jackofallops/gore"
 )
 
@@ -71,13 +71,27 @@ fmt.Println(behind.MatchString("bar"))    // false
 
 ### 3. Named Capture Groups
 
+Use `FindStringSubmatch` to extract captures, and `SubexpNames` to map them to names.
+
 ```go
 re := gore.MustCompile(`(?P<first>\w+)\s(?P<last>\w+)`)
-// Internal logic tracks names (API for extraction coming soon!)
-matched := re.MatchString("John Doe")
-if matched {
-    // Logic to extract named groups would go here
+matches := re.FindStringSubmatch("John Doe")
+names := re.SubexpNames()
+
+if matches != nil {
+    for i, match := range matches {
+        if i == 0 { continue } // Skip whole match
+        name := names[i]
+        if name != "" {
+            fmt.Printf("%s: %s\n", name, match)
+        } else {
+            fmt.Printf("Group %d: %s\n", i, match)
+        }
+    }
 }
+// Output:
+// first: John
+// last: Doe
 ```
 
 ### 4. Streaming Support (io.Reader)
@@ -93,7 +107,6 @@ if matched {
     fmt.Println("Found error in log file!")
 }
 ```
-
 
 ## ⚠️ Performance Note
 

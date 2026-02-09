@@ -124,15 +124,23 @@ func (p *Parser) parseAtom() (Node, error) {
 		// Allow Dot to be a CharClass for everything except \n
 		// For now using negated CharClass [\n]
 		return &CharClass{Negated: true, Ranges: []RuneRange{{Lo: '\n', Hi: '\n'}}}, nil
+
 	case '\\':
 		p.consume() // eat \
 		if p.pos >= len(p.input) {
 			return nil, fmt.Errorf("trailing backslash")
 		}
 		esc := p.consume()
-		// Handle standard escapes like \d, \w, \s
-		// For now just return literal
-		return &Literal{Runes: []rune{esc}}, nil
+		switch esc {
+		case 'd':
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}}}, nil
+		case 'w':
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}}, nil
+		case 's':
+			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}}, nil
+		default:
+			return &Literal{Runes: []rune{esc}}, nil
+		}
 	case '^':
 		p.consume()
 		return &Assertion{Kind: AssertStartText}, nil
