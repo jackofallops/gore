@@ -56,3 +56,13 @@ func BenchmarkPathological(b *testing.B) {
 		re.MatchString(input)
 	}
 }
+
+// BenchmarkNamedCaptures benchmarks the performance of named capture groups.
+func BenchmarkNamedCaptures(b *testing.B) {
+	re := MustCompile(`(?P<first>\w+)\s+(?P<last>\w+)`)
+	input := "John Doe"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		re.FindStringSubmatch(input)
+	}
+}

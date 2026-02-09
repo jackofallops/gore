@@ -124,5 +124,6 @@ Unlike the standard `regexp` package (which uses RE2 and guarantees O(n) linear 
 | `Lookbehind` | ~495 ns | Slower due to backtracking check |
 | `LookbehindLong` | ~15 ms | **Caution**: Lookbehind scales with input length (O(N)) |
 | `Pathological` | ~148 ms | Exponential backtracking on `(a+)+` |
+| `NamedCaptures` | ~354 ns | Includes capture overhead and allocations |
 
 Use `gore` when you need features that `regexp` simply cannot provide. For standard, simple patterns where safety is paramount, the standard library is still a great choice.
