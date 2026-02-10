@@ -28,6 +28,7 @@ type Inst struct {
 	Prog       *Prog         // For OpLookaround (sub-routine)
 	LookNeg    bool          // Negative lookaround
 	LookBehind bool          // Lookbehind
+	FoldCase   bool          // Case-insensitive matching
 }
 
 // Prog is a compiled regular expression program.

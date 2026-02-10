@@ -40,7 +40,10 @@ func (c *Compiler) Compile(node Node, numCaptures int) (*Prog, error) {
 func (c *Compiler) analyzePrefix(node Node) string {
 	switch n := node.(type) {
 	case *Literal:
-		// Return literal as prefix
+		// Return literal as prefix (only if case-sensitive)
+		if n.FoldCase {
+			return ""
+		}
 		return string(n.Runes)
 	case *Concat:
 		// First node of concat could be prefix
@@ -124,7 +127,11 @@ func (c *Compiler) compileNode(node Node) int {
 	case *Literal:
 		start := -1
 		for i, r := range n.Runes {
-			idx := c.emit(Inst{Op: OpChar, Val: r})
+			idx := c.emit(Inst{
+				Op:       OpChar,
+				Val:      r,
+				FoldCase: n.FoldCase,
+			})
 			if i == 0 {
 				start = idx
 			}
@@ -132,7 +139,12 @@ func (c *Compiler) compileNode(node Node) int {
 		return start
 
 	case *CharClass:
-		return c.emit(Inst{Op: OpCharClass, Ranges: n.Ranges, Negated: n.Negated})
+		return c.emit(Inst{
+			Op:       OpCharClass,
+			Ranges:   n.Ranges,
+			Negated:  n.Negated,
+			FoldCase: n.FoldCase,
+		})
 
 	case *Concat:
 		if len(n.Nodes) == 0 {

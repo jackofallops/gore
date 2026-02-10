@@ -14,6 +14,11 @@ type Parser struct {
 	// State for capturing groups
 	captures int
 	names    map[string]int
+	flags    parseFlags
+}
+
+type parseFlags struct {
+	caseInsensitive bool
 }
 
 func NewParser(input string) *Parser {
@@ -185,19 +190,19 @@ func (p *Parser) parseAtom() (Node, error) {
 		switch esc {
 		// Character classes
 		case 'd':
-			return &CharClass{Ranges: []RuneRange{{'0', '9'}}}, nil
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'D':
-			return &CharClass{Ranges: []RuneRange{{'0', '9'}}, Negated: true}, nil
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}}, Negated: true, FoldCase: p.flags.caseInsensitive}, nil
 		case 'w':
-			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}}, nil
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'W':
-			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}, Negated: true}, nil
+			return &CharClass{Ranges: []RuneRange{{'0', '9'}, {'A', 'Z'}, {'_', '_'}, {'a', 'z'}}, Negated: true, FoldCase: p.flags.caseInsensitive}, nil
 		case 's':
-			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}}, nil
+			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'S':
-			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}, Negated: true}, nil
+			return &CharClass{Ranges: []RuneRange{{'\t', '\t'}, {'\n', '\n'}, {'\r', '\r'}, {' ', ' '}}, Negated: true, FoldCase: p.flags.caseInsensitive}, nil
 
-		// Assertions
+		// Assertions (no fold)
 		case 'b':
 			return &Assertion{Kind: AssertWordBoundary}, nil
 		case 'B':
@@ -205,23 +210,23 @@ func (p *Parser) parseAtom() (Node, error) {
 
 		// Literal escapes
 		case 'n':
-			return &Literal{Runes: []rune{'\n'}}, nil
+			return &Literal{Runes: []rune{'\n'}, FoldCase: p.flags.caseInsensitive}, nil
 		case 't':
-			return &Literal{Runes: []rune{'\t'}}, nil
+			return &Literal{Runes: []rune{'\t'}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'r':
-			return &Literal{Runes: []rune{'\r'}}, nil
+			return &Literal{Runes: []rune{'\r'}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'f':
-			return &Literal{Runes: []rune{'\f'}}, nil
+			return &Literal{Runes: []rune{'\f'}, FoldCase: p.flags.caseInsensitive}, nil
 		case 'v':
-			return &Literal{Runes: []rune{'\v'}}, nil
+			return &Literal{Runes: []rune{'\v'}, FoldCase: p.flags.caseInsensitive}, nil
 
 		// Escaped metacharacters
 		case '.', '*', '+', '?', '|', '(', ')', '[', ']', '{', '}', '^', '$', '\\':
-			return &Literal{Runes: []rune{esc}}, nil
+			return &Literal{Runes: []rune{esc}, FoldCase: p.flags.caseInsensitive}, nil
 
 		default:
 			// Treat as literal
-			return &Literal{Runes: []rune{esc}}, nil
+			return &Literal{Runes: []rune{esc}, FoldCase: p.flags.caseInsensitive}, nil
 		}
 	case '^':
 		p.consume()
@@ -233,7 +238,7 @@ func (p *Parser) parseAtom() (Node, error) {
 		return nil, fmt.Errorf("unexpected meta char: %c", ch)
 	default:
 		p.consume()
-		return &Literal{Runes: []rune{ch}}, nil
+		return &Literal{Runes: []rune{ch}, FoldCase: p.flags.caseInsensitive}, nil
 	}
 }
 
@@ -273,12 +278,11 @@ func (p *Parser) parseCharClass() (Node, error) {
 		}
 	}
 
-	if p.pos >= len(p.input) {
+	if p.pos >= len(p.input) || p.consume() != ']' {
 		return nil, fmt.Errorf("unclosed character class")
 	}
-	p.consume() // eat ]
 
-	return &CharClass{Ranges: ranges, Negated: negated}, nil
+	return &CharClass{Ranges: ranges, Negated: negated, FoldCase: p.flags.caseInsensitive}, nil
 }
 
 func (p *Parser) consume_cc_char() rune {
@@ -297,6 +301,47 @@ func (p *Parser) parseGroup() (Node, error) {
 	// Check for (? extensions
 	if p.peek() == '?' {
 		p.consume() // eat ?
+
+		// Check for flags: (?i) or (?-i)
+		if p.pos < len(p.input) && (p.peek() == 'i' || p.peek() == '-') {
+			originalFlags := p.flags // Save flags before modification
+
+			// Handle flags
+			turnOn := true
+			if p.peek() == '-' {
+				turnOn = false
+				p.consume() // eat -
+			}
+
+			if p.pos < len(p.input) && p.peek() == 'i' {
+				p.consume() // eat i
+				p.flags.caseInsensitive = turnOn
+			}
+
+			if p.pos < len(p.input) && p.peek() == ')' {
+				p.consume() // eat )
+				// This was just a flag setting group, return Empty literal
+				return &Literal{Runes: []rune{}, FoldCase: p.flags.caseInsensitive}, nil
+			}
+
+			// If we have (?-i:...) it's a non-capturing group with flags
+			if p.pos < len(p.input) && p.peek() == ':' {
+				p.consume()                                // eat :
+				defer func() { p.flags = originalFlags }() // Restore flags after group
+
+				body, err := p.parseExpr()
+				if err != nil {
+					return nil, err
+				}
+				if p.pos >= len(p.input) || p.consume() != ')' {
+					return nil, fmt.Errorf("unclosed group")
+				}
+				return body, nil
+			}
+
+			return nil, fmt.Errorf("invalid flag syntax")
+		}
+
 		if p.pos >= len(p.input) {
 			return nil, fmt.Errorf("invalid group syntax")
 		}

@@ -2,6 +2,7 @@ package gore
 
 import (
 	"sync"
+	"unicode"
 )
 
 // Pool for capture slice allocations to reduce GC pressure
@@ -76,7 +77,13 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 
 		case OpChar:
 			r, w := vm.input.Step(pos)
-			if r != inst.Val {
+			matched := false
+			if inst.FoldCase {
+				matched = simpleFoldEqual(r, inst.Val)
+			} else {
+				matched = r == inst.Val
+			}
+			if !matched {
 				return -1, false
 			}
 			pos += w
@@ -87,7 +94,7 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 			if w == 0 { // EOF
 				return -1, false
 			}
-			if !matchClass(r, inst.Ranges, inst.Negated) {
+			if !matchClass(r, inst.Ranges, inst.Negated, inst.FoldCase) {
 				return -1, false
 			}
 			pos += w
@@ -189,29 +196,66 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 
 // matchClass checks if rune r matches the character class.
 // Optimized with fast-path for common single-range classes.
-func matchClass(r rune, ranges []RuneRange, negated bool) bool {
-	// Fast path for single range (common with \d, \w components)
-	if len(ranges) == 1 {
-		matched := r >= ranges[0].Lo && r <= ranges[0].Hi
-		if negated {
-			return !matched
-		}
-		return matched
-	}
-
-	// General case: check all ranges
+func matchClass(r rune, ranges []RuneRange, negated bool, foldCase bool) bool {
 	matched := false
-	for _, rng := range ranges {
-		if r >= rng.Lo && r <= rng.Hi {
+
+	// Case folding optimization
+	if foldCase {
+		// Try original rune first
+		if checkRanges(r, ranges) {
 			matched = true
-			break
+		} else {
+			// Try folded rune
+			// SimpleFold iterates over unicode equivalence classes
+			f := unicode.SimpleFold(r)
+			for f != r {
+				if checkRanges(f, ranges) {
+					matched = true
+					break
+				}
+				f = unicode.SimpleFold(f)
+			}
 		}
+	} else {
+		matched = checkRanges(r, ranges)
 	}
 
 	if negated {
 		return !matched
 	}
 	return matched
+}
+
+// checkRanges checks if rune r is in any of the ranges
+func checkRanges(r rune, ranges []RuneRange) bool {
+	// Fast path for single range
+	if len(ranges) == 1 {
+		return r >= ranges[0].Lo && r <= ranges[0].Hi
+	}
+
+	// General case
+	for _, rng := range ranges {
+		if r >= rng.Lo && r <= rng.Hi {
+			return true
+		}
+	}
+	return false
+}
+
+// simpleFoldEqual checks if r1 and r2 are equal under Unicode case folding
+func simpleFoldEqual(r1, r2 rune) bool {
+	if r1 == r2 {
+		return true
+	}
+	// Iterate through the fold cycle
+	f := unicode.SimpleFold(r1)
+	for f != r1 {
+		if f == r2 {
+			return true
+		}
+		f = unicode.SimpleFold(f)
+	}
+	return false
 }
 
 func (vm *VM) checkAssertion(kind AssertionType, pos int) bool {

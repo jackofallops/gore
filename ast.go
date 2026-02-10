@@ -21,8 +21,8 @@ type Node interface {
 
 // Literal matches a sequence of runes.
 type Literal struct {
-	Runes []rune
-	Fold  bool // Case-insensitive
+	Runes    []rune
+	FoldCase bool // Case-insensitive matching
 }
 
 func (n *Literal) Type() NodeType { return NodeLiteral }
@@ -87,8 +87,9 @@ func (n *Lookaround) Type() NodeType { return NodeLookaround }
 
 // CharClass represents [a-z0-9] or [^a-z].
 type CharClass struct {
-	Ranges  []RuneRange
-	Negated bool
+	Ranges   []RuneRange
+	Negated  bool
+	FoldCase bool // Case-insensitive matching
 }
 
 type RuneRange struct {
