@@ -210,6 +210,12 @@ func (c *Compiler) compileNode(node Node) int {
 			LookNeg:    n.Negative,
 			LookBehind: n.Behind,
 		})
+
+	case *Backreference:
+		return c.emit(Inst{
+			Op:  OpBackref,
+			Idx: n.Index,
+		})
 	}
 	return -1
 }

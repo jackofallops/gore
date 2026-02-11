@@ -226,6 +226,10 @@ func (p *Parser) parseAtom() (Node, error) {
 			return &Literal{Runes: []rune{esc}, FoldCase: p.flags.caseInsensitive}, nil
 
 		default:
+			// Check for backreference \1, \2, etc.
+			if esc >= '1' && esc <= '9' {
+				return &Backreference{Index: int(esc - '0')}, nil
+			}
 			// Treat as literal
 			return &Literal{Runes: []rune{esc}, FoldCase: p.flags.caseInsensitive}, nil
 		}
@@ -261,6 +265,44 @@ func (p *Parser) parseCharClass() (Node, error) {
 	}
 
 	for p.pos < len(p.input) && p.peek() != ']' {
+		// Check for escape sequences that expand to multiple ranges
+		if p.peek() == '\\' && p.pos+1 < len(p.input) {
+			nextChar := p.input[p.pos+1]
+			switch nextChar {
+			case 'd':
+				p.consume() // eat \
+				p.consume() // eat d
+				ranges = append(ranges, RuneRange{Lo: '0', Hi: '9'})
+				continue
+			case 'D':
+				// \D inside [] means NOT digit, but we can't easily handle negation inside class
+				// For now, treat as error or expand to many ranges
+				return nil, fmt.Errorf("\\D not supported inside character class")
+			case 'w':
+				p.consume() // eat \
+				p.consume() // eat w
+				ranges = append(ranges, RuneRange{Lo: '0', Hi: '9'})
+				ranges = append(ranges, RuneRange{Lo: 'A', Hi: 'Z'})
+				ranges = append(ranges, RuneRange{Lo: '_', Hi: '_'})
+				ranges = append(ranges, RuneRange{Lo: 'a', Hi: 'z'})
+				continue
+			case 'W':
+				// \W inside [] is problematic
+				return nil, fmt.Errorf("\\W not supported inside character class")
+			case 's':
+				p.consume() // eat \
+				p.consume() // eat s
+				ranges = append(ranges, RuneRange{Lo: '\t', Hi: '\t'})
+				ranges = append(ranges, RuneRange{Lo: '\n', Hi: '\n'})
+				ranges = append(ranges, RuneRange{Lo: '\r', Hi: '\r'})
+				ranges = append(ranges, RuneRange{Lo: ' ', Hi: ' '})
+				continue
+			case 'S':
+				// \S inside [] is problematic
+				return nil, fmt.Errorf("\\S not supported inside character class")
+			}
+		}
+
 		r1 := p.consume_cc_char()
 
 		// Check for range a-z
@@ -292,7 +334,23 @@ func (p *Parser) consume_cc_char() rune {
 		if p.pos >= len(p.input) {
 			return '\\' // Should error but gracefully return
 		}
-		return p.consume()
+		esc := p.consume()
+		// Handle common escape sequences
+		switch esc {
+		case 'n':
+			return '\n'
+		case 't':
+			return '\t'
+		case 'r':
+			return '\r'
+		case 'f':
+			return '\f'
+		case 'v':
+			return '\v'
+		default:
+			// For other escapes, return the literal character
+			return esc
+		}
 	}
 	return p.consume()
 }

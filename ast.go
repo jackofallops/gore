@@ -11,7 +11,8 @@ const (
 	NodeCapture
 	NodeAssertion
 	NodeLookaround
-	NodeCharClass // [new]
+	NodeCharClass   // [new]
+	NodeBackreference
 )
 
 // Node is the base interface for AST nodes.
@@ -97,3 +98,10 @@ type RuneRange struct {
 }
 
 func (n *CharClass) Type() NodeType { return NodeCharClass }
+
+// Backreference refers to a previously captured group.
+type Backreference struct {
+	Index int // 1-based index of the capture group
+}
+
+func (n *Backreference) Type() NodeType { return NodeBackreference }

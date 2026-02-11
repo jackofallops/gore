@@ -198,6 +198,50 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 				}
 			}
 			pc++
+
+		case OpBackref:
+			// Get the capture group index (1-based in AST, but we store as 1-based)
+			capIdx := inst.Idx
+			// Captures are stored as pairs: [start0, end0, start1, end1, ...]
+			// Group 0 is the whole match, group 1 is at indices 2,3, etc.
+			startIdx := capIdx * 2
+			endIdx := capIdx*2 + 1
+
+			// Check if capture group exists and has been captured
+			if startIdx >= len(caps) || endIdx >= len(caps) {
+				return -1, false
+			}
+
+			capStart := caps[startIdx]
+			capEnd := caps[endIdx]
+
+			// If capture group hasn't been captured yet or is empty
+			if capStart == -1 || capEnd == -1 {
+				// Empty backreference matches empty string
+				pc++
+				continue
+			}
+
+			// Match the captured text at the current position
+			capLen := capEnd - capStart
+			for i := 0; i < capLen; i++ {
+				r1, w1 := vm.input.Step(capStart + i)
+				r2, w2 := vm.input.Step(pos + i)
+
+				// Check EOF
+				if w1 == 0 || w2 == 0 {
+					return -1, false
+				}
+
+				// Compare runes
+				if r1 != r2 {
+					return -1, false
+				}
+			}
+
+			// Advance position by the length of the matched backreference
+			pos += capLen
+			pc++
 		}
 	}
 }

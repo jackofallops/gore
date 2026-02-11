@@ -14,6 +14,7 @@ const (
 	OpSave                     // Save position to capture register
 	OpAssert                   // Zero-width assertion (Start/End line)
 	OpLookaround               // Recursive check for lookaround
+	OpBackref                  // Match a backreference to a capture group
 )
 
 type Inst struct {
@@ -23,7 +24,7 @@ type Inst struct {
 	Negated    bool          // For OpCharClass
 	Out        int           // Jump target 1 (primary)
 	Out1       int           // Jump target 2 (alternative for Split)
-	Idx        int           // Register index for OpSave
+	Idx        int           // Register index for OpSave, or capture group for OpBackref
 	Assert     AssertionType // For OpAssert
 	Prog       *Prog         // For OpLookaround (sub-routine)
 	LookNeg    bool          // Negative lookaround
@@ -66,6 +67,8 @@ func (i Inst) String() string {
 		return fmt.Sprintf("assert %d", i.Assert)
 	case OpLookaround:
 		return fmt.Sprintf("look %v %d", i.LookNeg, i.Prog.Start)
+	case OpBackref:
+		return fmt.Sprintf("backref %d", i.Idx)
 	}
 	return "?"
 }
