@@ -3,7 +3,6 @@ package gore
 import (
 	"bytes"
 	"io"
-	"io/ioutil"
 	"unicode/utf8"
 )
 
@@ -14,7 +13,7 @@ type ReaderInput struct {
 }
 
 func NewReaderInput(r io.Reader) (*ReaderInput, error) {
-	b, err := ioutil.ReadAll(r)
+	b, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}

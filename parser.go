@@ -95,11 +95,12 @@ func (p *Parser) parseFactor() (Node, error) {
 	case '*', '+', '?':
 		p.consume()
 		q := &Quantifier{Body: atom, Greedy: true}
-		if ch == '*' {
+		switch ch {
+		case '*':
 			q.Min, q.Max = 0, -1
-		} else if ch == '+' {
+		case '+':
 			q.Min, q.Max = 1, -1
-		} else {
+		default: // '?'
 			q.Min, q.Max = 0, 1
 		}
 		if p.pos < len(p.input) && p.peek() == '?' {

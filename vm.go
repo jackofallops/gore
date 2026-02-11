@@ -7,9 +7,11 @@ import (
 
 // Pool for capture slice allocations to reduce GC pressure
 var capsPool = sync.Pool{
-	New: func() interface{} {
+	New: func() any {
 		// Pre-allocate reasonable size
-		return make([]int, 0, 20)
+		// Return a pointer to slice to avoid allocation when putting into interface{}
+		s := make([]int, 0, 20)
+		return &s
 	},
 }
 
@@ -27,8 +29,8 @@ func NewVM(prog *Prog, input Input) *VM {
 // Returns true if match found, and the capture positions.
 func (vm *VM) Run(pos int) (bool, []int) {
 	// Get caps from pool and ensure proper size
-	poolCaps := capsPool.Get().([]int)
-	caps := poolCaps[:0] // Reset length
+	poolCapsPtr := capsPool.Get().(*[]int)
+	caps := (*poolCapsPtr)[:0] // Reset length
 
 	// Ensure capacity
 	needed := vm.prog.NumCap * 2
@@ -52,7 +54,10 @@ func (vm *VM) Run(pos int) (bool, []int) {
 	}
 
 	// Return caps to pool
-	capsPool.Put(caps)
+	// Return caps to pool
+	// Update pointer to point to potentially new slice (if realloc)
+	*poolCapsPtr = caps
+	capsPool.Put(poolCapsPtr)
 	return false, nil
 }
 
@@ -117,8 +122,8 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 		case OpSplit:
 			// Backtracking split: try both branches
 			// Get caps copy from pool
-			poolCaps := capsPool.Get().([]int)
-			capsCopy := poolCaps[:0]
+			poolCapsPtr := capsPool.Get().(*[]int)
+			capsCopy := (*poolCapsPtr)[:0]
 			if cap(capsCopy) < len(caps) {
 				capsCopy = make([]int, len(caps))
 			} else {
@@ -129,12 +134,15 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 			// Try first branch
 			if endPos, ok := vm.match(inst.Out, pos, capsCopy); ok {
 				copy(caps, capsCopy)
-				capsPool.Put(capsCopy)
+				*poolCapsPtr = capsCopy
+				capsPool.Put(poolCapsPtr)
 				return endPos, true
 			}
 
 			// Return copy to pool
-			capsPool.Put(capsCopy)
+			// Return copy to pool
+			*poolCapsPtr = capsCopy
+			capsPool.Put(poolCapsPtr)
 
 			// Try second branch (tail call optimization possible)
 			return vm.match(inst.Out1, pos, caps)
