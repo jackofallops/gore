@@ -346,3 +346,99 @@ func TestWordBoundaries(t *testing.T) {
 		}
 	}
 }
+
+func TestComplexRegexPatterns(t *testing.T) {
+	tests := []struct {
+		name       string
+		pattern    string
+		subject    string
+		wantMatch  bool
+		wantGroups []string // The full match is index 0
+	}{
+		// --- 1. POSITIVE & NEGATIVE LOOKAHEADS ---
+		// Validates passwords: 8-16 chars, 1+ upper, 1+ digit, NO whitespace
+		{
+			name:      "Password Validator - Valid",
+			pattern:   `^(?=.*[A-Z])(?=.*\d)(?![^a-zA-Z\d]*\s)\S{8,16}$`,
+			subject:   "Secure7890!",
+			wantMatch: true,
+		},
+		{
+			name:      "Password Validator - Invalid (No Digit)",
+			pattern:   `^(?=.*[A-Z])(?=.*\d)(?![^a-zA-Z\d]*\s)\S{8,16}$`,
+			subject:   "OnlyLetters!",
+			wantMatch: false,
+		},
+
+		// --- 2. POSITIVE LOOKBEHIND ---
+		// Extract domain names only if preceded by https://
+		{
+			name:       "Secure Domain Extraction",
+			pattern:    `(?<=https:\/\/)([\w.-]+)\.(com|org|net)`,
+			subject:    "Visit https://api.github.com for details",
+			wantMatch:  true,
+			wantGroups: []string{"api.github.com", "api.github", "com"},
+		},
+
+		// --- 3. NEGATIVE LOOKBEHIND & LOOKAHEAD ---
+		// Matches dollar amounts that are NOT negative (debt) and have exactly 2 decimals
+		{
+			name:       "Strict Currency Filter",
+			pattern:    `(?<!-)\$\s?(\d+(?:\.\d{2})(?=\s|$))`,
+			subject:    "The balance is $1250.00 today",
+			wantMatch:  true,
+			wantGroups: []string{"$1250.00", "1250.00"},
+		},
+		{
+			name:      "Strict Currency Filter - Skip Negative",
+			pattern:   `(?<!-)\$\s?(\d+(?:\.\d{2})(?=\s|$))`,
+			subject:   "Debt: -$50.00",
+			wantMatch: false,
+		},
+
+		// --- 4. BACKREFERENCES (Stress Test) ---
+		// Matches HTML/XML tags ensuring the closing tag matches the opening tag
+		{
+			name:       "Tag Matching Backreference",
+			pattern:    `<([a-z1-6]+)>.*?</\1>`,
+			subject:    "<h1>Welcome to GORE</h1>",
+			wantMatch:  true,
+			wantGroups: []string{"<h1>Welcome to GORE</h1>", "h1"},
+		},
+		{
+			name:      "Tag Mismatch",
+			pattern:   `<([a-z1-6]+)>.*?<\/\1>`,
+			subject:   "<div>Mismatch</span>",
+			wantMatch: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Compile the pattern
+			re, err := Compile(tt.pattern)
+			if err != nil {
+				t.Fatalf("Failed to compile pattern %q: %v", tt.pattern, err)
+			}
+
+			// Perform match
+			match := re.MatchString(tt.subject)
+			if match != tt.wantMatch {
+				t.Errorf("MatchString(%q) = %v; want %v", tt.subject, match, tt.wantMatch)
+			}
+
+			// Check capture groups if a match was expected
+			if tt.wantMatch && len(tt.wantGroups) > 0 {
+				gotGroups := re.FindStringSubmatch(tt.subject)
+				if len(gotGroups) != len(tt.wantGroups) {
+					t.Errorf("Expected %d capture groups, got %d", len(tt.wantGroups), len(gotGroups))
+				}
+				for i, want := range tt.wantGroups {
+					if i < len(gotGroups) && gotGroups[i] != want {
+						t.Errorf("Group %d = %q; want %q", i, gotGroups[i], want)
+					}
+				}
+			}
+		})
+	}
+}
