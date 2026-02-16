@@ -30,6 +30,16 @@ func NewParser(input string) *Parser {
 	}
 }
 
+// isIdentStart returns true if r is a valid identifier start character (letter or underscore).
+func isIdentStart(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '_'
+}
+
+// isIdentRune returns true if r is a valid identifier character (letter, digit, underscore).
+func isIdentRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_'
+}
+
 func (p *Parser) Parse() (Node, error) {
 	node, err := p.parseExpr()
 	if err != nil {
@@ -481,18 +491,13 @@ func (p *Parser) parseGroup() (Node, error) {
 
 			// Validate name starts with letter or underscore
 			firstChar := rune(name[0])
-			if !((firstChar >= 'a' && firstChar <= 'z') ||
-				(firstChar >= 'A' && firstChar <= 'Z') ||
-				firstChar == '_') {
+			if !isIdentStart(firstChar) {
 				return nil, fmt.Errorf("invalid capture group name %q: must start with letter or underscore", name)
 			}
 
 			// Validate name contains only alphanumeric and underscore
 			for _, ch := range name {
-				if !((ch >= 'a' && ch <= 'z') ||
-					(ch >= 'A' && ch <= 'Z') ||
-					(ch >= '0' && ch <= '9') ||
-					ch == '_') {
+				if !isIdentRune(ch) {
 					return nil, fmt.Errorf("invalid capture group name %q: contains invalid character %q", name, ch)
 				}
 			}
