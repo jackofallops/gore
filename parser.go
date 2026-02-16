@@ -19,6 +19,8 @@ type Parser struct {
 
 type parseFlags struct {
 	caseInsensitive bool
+	multiline       bool
+	dotall          bool // for future (?s) implementation
 }
 
 func NewParser(input string) *Parser {
@@ -239,10 +241,10 @@ func (p *Parser) parseAtom() (Node, error) {
 		}
 	case '^':
 		p.consume()
-		return &Assertion{Kind: AssertStartText}, nil
+		return &Assertion{Kind: AssertStartText, Multiline: p.flags.multiline}, nil
 	case '$':
 		p.consume()
-		return &Assertion{Kind: AssertEndText}, nil
+		return &Assertion{Kind: AssertEndText, Multiline: p.flags.multiline}, nil
 	case '|', ')':
 		return nil, fmt.Errorf("unexpected meta char: %c", ch)
 	default:
@@ -373,29 +375,46 @@ func (p *Parser) parseGroup() (Node, error) {
 	if p.peek() == '?' {
 		p.consume() // eat ?
 
-		// Check for flags: (?i) or (?-i)
-		if p.pos < len(p.input) && (p.peek() == 'i' || p.peek() == '-') {
+		// Check for flags: (?i) (?m) (?s) or combinations (?im) (?-i)
+		if p.pos < len(p.input) && (p.peek() == 'i' || p.peek() == 'm' ||
+			p.peek() == 's' || p.peek() == '-') {
 			originalFlags := p.flags // Save flags before modification
 
-			// Handle flags
 			turnOn := true
-			if p.peek() == '-' {
-				turnOn = false
-				p.consume() // eat -
+			for p.pos < len(p.input) {
+				ch := p.peek()
+				if ch == ')' || ch == ':' {
+					break
+				}
+
+				if ch == '-' {
+					turnOn = false
+					p.consume()
+					continue
+				}
+
+				switch ch {
+				case 'i':
+					p.consume()
+					p.flags.caseInsensitive = turnOn
+				case 'm':
+					p.consume()
+					p.flags.multiline = turnOn
+				case 's':
+					p.consume()
+					p.flags.dotall = turnOn
+				default:
+					return nil, fmt.Errorf("unknown flag: %c", ch)
+				}
 			}
 
-			if p.pos < len(p.input) && p.peek() == 'i' {
-				p.consume() // eat i
-				p.flags.caseInsensitive = turnOn
-			}
-
+			// Handle (?flags) vs (?flags:...)
 			if p.pos < len(p.input) && p.peek() == ')' {
-				p.consume() // eat )
+				p.consume()
 				// This was just a flag setting group, return Empty literal
 				return &Literal{Runes: []rune{}, FoldCase: p.flags.caseInsensitive}, nil
 			}
 
-			// If we have (?-i:...) it's a non-capturing group with flags
 			if p.pos < len(p.input) && p.peek() == ':' {
 				p.consume()                                // eat :
 				defer func() { p.flags = originalFlags }() // Restore flags after group

@@ -72,7 +72,8 @@ const (
 )
 
 type Assertion struct {
-	Kind AssertionType
+	Kind      AssertionType
+	Multiline bool // True if ^ or $ should behave in multiline mode
 }
 
 func (n *Assertion) Type() NodeType { return NodeAssertion }

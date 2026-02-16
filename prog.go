@@ -26,6 +26,7 @@ type Inst struct {
 	Out1       int           // Jump target 2 (alternative for Split)
 	Idx        int           // Register index for OpSave, or capture group for OpBackref
 	Assert     AssertionType // For OpAssert
+	Multiline  bool          // For OpAssert (multiline mode)
 	Prog       *Prog         // For OpLookaround (sub-routine)
 	LookNeg    bool          // Negative lookaround
 	LookBehind bool          // Lookbehind

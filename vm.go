@@ -152,7 +152,7 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 			pc++
 
 		case OpAssert:
-			if !vm.checkAssertion(inst.Assert, pos) {
+			if !vm.checkAssertion(inst.Assert, pos, inst.Multiline) {
 				return -1, false
 			}
 			pc++
@@ -316,13 +316,30 @@ func simpleFoldEqual(r1, r2 rune) bool {
 	return false
 }
 
-func (vm *VM) checkAssertion(kind AssertionType, pos int) bool {
+func (vm *VM) checkAssertion(kind AssertionType, pos int, multiline bool) bool {
 	switch kind {
 	case AssertStartText:
-		return pos == 0
+		if pos == 0 {
+			return true // Always match at start of string
+		}
+		if multiline {
+			// In multiline mode, ^ also matches after \n
+			prevChar, _ := vm.input.Context(pos)
+			return prevChar == '\n'
+		}
+		return false
+
 	case AssertEndText:
 		r, _ := vm.input.Step(pos)
-		return r == 0 // EOF
+		if r == 0 {
+			return true // Always match at end of string (EOF)
+		}
+		if multiline {
+			// In multiline mode, $ also matches before \n
+			return r == '\n'
+		}
+		return false
+
 	case AssertWordBoundary:
 		return vm.isWordBoundary(pos)
 	case AssertNotWordBoundary:

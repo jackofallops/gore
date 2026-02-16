@@ -198,7 +198,11 @@ func (c *Compiler) compileNode(node Node) int {
 		return idx1
 
 	case *Assertion:
-		return c.emit(Inst{Op: OpAssert, Assert: n.Kind})
+		return c.emit(Inst{
+			Op:        OpAssert,
+			Assert:    n.Kind,
+			Multiline: n.Multiline,
+		})
 
 	case *Lookaround:
 		subC := NewCompiler()

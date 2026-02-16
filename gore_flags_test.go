@@ -77,10 +77,7 @@ func TestCaseInsensitiveGroup(t *testing.T) {
 }
 
 // TestMultilineMode tests the (?m) flag for multiline matching
-// Note: Multiline mode is not yet implemented - test is skipped
 func TestMultilineMode(t *testing.T) {
-	t.Skip("Multiline mode (?m) is not yet implemented")
-
 	tests := []struct {
 		pattern string
 		input   string
