@@ -220,6 +220,12 @@ func (p *Parser) parseAtom() (Node, error) {
 			return &Assertion{Kind: AssertWordBoundary}, nil
 		case 'B':
 			return &Assertion{Kind: AssertNotWordBoundary}, nil
+		case 'A':
+			return &Assertion{Kind: AssertStringStart}, nil
+		case 'Z':
+			return &Assertion{Kind: AssertStringEnd}, nil
+		case 'z':
+			return &Assertion{Kind: AssertAbsoluteEnd}, nil
 
 		// Literal escapes
 		case 'n':

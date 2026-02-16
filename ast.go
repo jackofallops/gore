@@ -69,6 +69,9 @@ const (
 	AssertEndText                              // $
 	AssertWordBoundary                         // \b
 	AssertNotWordBoundary                      // \B
+	AssertStringStart                          // \A
+	AssertStringEnd                            // \Z
+	AssertAbsoluteEnd                          // \z
 )
 
 type Assertion struct {

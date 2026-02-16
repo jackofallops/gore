@@ -95,10 +95,7 @@ func TestWordBoundaries(t *testing.T) {
 }
 
 // TestStringAnchors tests \A, \Z, \z anchors (distinct from ^ and $)
-// Note: These anchors are not yet implemented - test is skipped
 func TestStringAnchors(t *testing.T) {
-	t.Skip("String anchors \\A, \\Z, \\z are not yet implemented")
-
 	tests := []struct {
 		pattern string
 		input   string

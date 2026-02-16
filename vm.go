@@ -344,6 +344,29 @@ func (vm *VM) checkAssertion(kind AssertionType, pos int, multiline bool) bool {
 		return vm.isWordBoundary(pos)
 	case AssertNotWordBoundary:
 		return !vm.isWordBoundary(pos)
+
+	case AssertStringStart:
+		// \A matches only at absolute start of string
+		return pos == 0
+
+	case AssertStringEnd:
+		// \Z matches at end of string or before a final newline
+		r, _ := vm.input.Step(pos)
+		if r == 0 {
+			return true // At EOF
+		}
+		// Check if we're before a single trailing newline
+		if r == '\n' {
+			// Look ahead to see if this is the last character
+			nextR, _ := vm.input.Step(pos + 1)
+			return nextR == 0 // Only match if newline is the last character
+		}
+		return false
+
+	case AssertAbsoluteEnd:
+		// \z matches only at absolute end (EOF)
+		r, _ := vm.input.Step(pos)
+		return r == 0 // Must be at EOF with no trailing newline
 	}
 	return true
 }
