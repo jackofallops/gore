@@ -106,11 +106,8 @@ func TestMultilineMode(t *testing.T) {
 }
 
 // TestDotallMode tests the (?s) flag for dotall matching
-// Note: Dotall mode is not yet implemented - test is skipped
 func TestDotallMode(t *testing.T) {
-	t.Skip("Dotall mode (?s) is not yet implemented")
-
-	tests := []struct {
+	tests := []struct{
 		pattern string
 		input   string
 		want    bool

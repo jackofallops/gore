@@ -183,9 +183,15 @@ func (p *Parser) parseAtom() (Node, error) {
 		return p.parseCharClass()
 	case '.':
 		p.consume()
-		// . matches anything but newline
-		// Allow Dot to be a CharClass for everything except \n
-		// For now using negated CharClass [\n]
+		if p.flags.dotall {
+			// Dotall mode: . matches any character including \n
+			// Match all Unicode characters
+			return &CharClass{
+				Negated: false,
+				Ranges:  []RuneRange{{Lo: 0, Hi: '\U0010FFFF'}},
+			}, nil
+		}
+		// Default: . matches anything but newline
 		return &CharClass{Negated: true, Ranges: []RuneRange{{Lo: '\n', Hi: '\n'}}}, nil
 
 	case '\\':
