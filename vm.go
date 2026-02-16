@@ -215,9 +215,15 @@ func (vm *VM) match(pc int, pos int, caps []int) (int, bool) {
 			capStart := caps[startIdx]
 			capEnd := caps[endIdx]
 
-			// If capture group hasn't been captured yet or is empty
+			// If capture group hasn't been captured yet (unset)
 			if capStart == -1 || capEnd == -1 {
-				// Empty backreference matches empty string
+				// Unset backreference should fail to match
+				return -1, false
+			}
+
+			// If capture group is empty (captured but zero-length)
+			if capStart == capEnd {
+				// Empty backreference matches empty string (this is correct)
 				pc++
 				continue
 			}

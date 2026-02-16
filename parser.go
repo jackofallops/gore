@@ -145,6 +145,10 @@ func (p *Parser) parseFactor() (Node, error) {
 				if err != nil {
 					return nil, fmt.Errorf("invalid quantifier: %v", err)
 				}
+				// Validate min <= max
+				if min > max {
+					return nil, fmt.Errorf("invalid quantifier {%d,%d}: min cannot be greater than max", min, max)
+				}
 			}
 		}
 
@@ -242,6 +246,10 @@ func (p *Parser) parseAtom() (Node, error) {
 	case '|', ')':
 		return nil, fmt.Errorf("unexpected meta char: %c", ch)
 	default:
+		// Check for quantifier metacharacters without target
+		if ch == '*' || ch == '+' || ch == '?' || ch == '{' {
+			return nil, fmt.Errorf("quantifier %q requires a target", ch)
+		}
 		p.consume()
 		return &Literal{Runes: []rune{ch}, FoldCase: p.flags.caseInsensitive}, nil
 	}
@@ -315,6 +323,10 @@ func (p *Parser) parseCharClass() (Node, error) {
 				break
 			}
 			r2 := p.consume_cc_char()
+			// Validate that Lo <= Hi
+			if r1 > r2 {
+				return nil, fmt.Errorf("invalid character class range: %c-%c (start > end)", r1, r2)
+			}
 			ranges = append(ranges, RuneRange{Lo: r1, Hi: r2})
 		} else {
 			ranges = append(ranges, RuneRange{Lo: r1, Hi: r1})
@@ -430,6 +442,34 @@ func (p *Parser) parseGroup() (Node, error) {
 			}
 			name := p.input[p.pos : p.pos+nameEnd]
 			p.pos += nameEnd + 1 // skip name and >
+
+			// Validate name is not empty
+			if name == "" {
+				return nil, fmt.Errorf("empty capture group name")
+			}
+
+			// Validate name starts with letter or underscore
+			firstChar := rune(name[0])
+			if !((firstChar >= 'a' && firstChar <= 'z') ||
+				(firstChar >= 'A' && firstChar <= 'Z') ||
+				firstChar == '_') {
+				return nil, fmt.Errorf("invalid capture group name %q: must start with letter or underscore", name)
+			}
+
+			// Validate name contains only alphanumeric and underscore
+			for _, ch := range name {
+				if !((ch >= 'a' && ch <= 'z') ||
+					(ch >= 'A' && ch <= 'Z') ||
+					(ch >= '0' && ch <= '9') ||
+					ch == '_') {
+					return nil, fmt.Errorf("invalid capture group name %q: contains invalid character %q", name, ch)
+				}
+			}
+
+			// Check for duplicate names
+			if existingIdx, exists := p.names[name]; exists {
+				return nil, fmt.Errorf("duplicate capture group name %q (already used for group %d)", name, existingIdx)
+			}
 
 			p.captures++
 			idx := p.captures
