@@ -6,7 +6,7 @@ DISCLOSURE: This lib was developed as an experiment for PCRE style regexp proces
 
 It is designed to be a familiar API similar to standard regex, while offering the advanced capabilities of PCRE2 engines when you need them.
 
-**Test Coverage:** 56/57 tests passing (98%) | **PCRE2 Features:** 30+ supported
+**Test Coverage:** 57/57 tests passing (100%) | **PCRE2 Features:** 30+ supported
 
 ## 🚀 Key Features
 
@@ -169,6 +169,39 @@ Unlike the standard `regexp` package (which uses RE2 and guarantees O(n) linear 
 - Duplicate capture group names
 - Quantifiers without targets
 - Clear, descriptive error messages at compile time
+
+### Advanced PCRE2 Features (Future Work)
+
+The following advanced PCRE2 features are not yet implemented but may be added in future versions:
+
+**Performance & Control:**
+- Atomic groups `(?>...)` - Prevent backtracking within group
+- Possessive quantifiers `*+`, `++`, `?+`, `{n,m}+` - Greedy without backtracking
+- Backtracking control `(*ACCEPT)`, `(*FAIL)`, `(*SKIP)`, `(*PRUNE)`, `(*COMMIT)`
+
+**Advanced Patterns:**
+- Conditional patterns `(?(condition)yes|no)` - Conditional matching based on group presence
+- Subroutines `(?&name)`, `(?1)`, `(?R)` - Pattern reuse and recursion
+- Recursion `(?R)`, `(?0)` - Recursive pattern matching
+- Branch reset `(?|...)` - Reset capture group numbering within branches
+- DEFINE groups `(?(DEFINE)...)` - Define reusable subpatterns
+
+**Convenience Features:**
+- Extended mode `(?x)` - Free-spacing mode with inline comments
+- Ungreedy mode `(?U)` - Make quantifiers lazy by default
+- Comments `(?#...)` - Inline pattern documentation
+- Callouts `(?C)`, `(?C123)` - Regex engine callbacks for debugging
+
+**Unicode & Character Classes:**
+- Unicode properties `\p{Letter}`, `\p{Number}`, `\P{Punctuation}` - Unicode category matching
+- Script properties `\p{Greek}`, `\p{Han}`, `\p{Arabic}` - Unicode script matching
+- Character class operations - Set intersection, subtraction, and union
+
+**Line Ending Control:**
+- Newline conventions `(*CRLF)`, `(*LF)`, `(*CR)`, `(*ANYCRLF)` - Control what counts as newline
+- `\R` - Generic newline sequence matching
+
+**Note:** gore currently implements the core PCRE2 features needed for 80% of practical use cases. Advanced features above are tracked for potential future implementation.
 
 ### Benchmarks (Apple M2)
 
